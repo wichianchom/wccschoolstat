@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="th" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบเช็คชื่อโรงเรียนวิเชียรชม</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        html, body, * { font-family: 'Kanit', sans-serif !important; }
+        .loading-overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.95); display: flex; justify-content: center; align-items: center; z-index: 9999; flex-direction: column; }
+        
+        @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.8; } }
+        .alert-active { animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+
+        /* PRINT SETTINGS */
+        @media print {
+            @page { size: A4 landscape; margin: 5mm; } 
+            body { background: white !important; -webkit-print-color-adjust: exact; zoom: 90%; }
+            #app, #login-screen, .toast, #admin-modal, #classroom-modal, #edit-modal, .no-print, #unchecked-alert-box { display: none !important; }
+            #print-area { display: block !important; width: 100%; }
+            .print-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; align-items: start; }
+            .grade-box { break-inside: avoid; page-break-inside: avoid; margin-bottom: 5px; }
+            table.print-table { width: 100%; border-collapse: collapse; border: 0.5px solid #000; font-size: 10px; }
+            table.print-table th, table.print-table td { border: 0.5px solid #000; padding: 1px 2px; text-align: center; height: 14px; line-height: 1.1; }
+            table.print-table th { background-color: #f3f4f6 !important; font-weight: bold; }
+            .bg-gray-100 { background-color: #f3f4f6 !important; }
+            .bg-blue-50 { background-color: #eff6ff !important; }
+            .bg-red-50 { background-color: #fef2f2 !important; }
+        }
+        #print-area { display: none; }
+    </style>
+</head>
+<body class="h-full bg-blue-50">
+
+    <div id="loading-screen" class="loading-overlay">
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent mb-4"></div>
+        <p class="text-blue-800 font-bold text-lg" id="loading-text">กำลังเชื่อมต่อฐานข้อมูล...</p>
+    </div>
+
+    <div id="login-screen" class="hidden fixed inset-0 bg-gray-900/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full">
+            <h1 class="text-2xl font-bold text-center text-indigo-900 mb-6">ผู้ดูแลระบบ</h1>
+            <form id="login-form" class="space-y-4">
+                <input type="password" id="password" placeholder="กรอกรหัสผ่าน" class="w-full border-2 border-gray-200 p-3 rounded-xl focus:border-indigo-500 outline-none transition">
+                <div class="flex gap-2">
+                    <button type="submit" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white p-3 rounded-xl font-bold transition">เข้าสู่ระบบ</button>
+                    <button type="button" id="cancel-login" class="px-4 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold text-gray-600">กลับ</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="app" class="h-full w-full overflow-auto hidden">
+        <div class="max-w-7xl mx-auto p-4 md:p-6">
+            <div class="bg-white rounded-2xl shadow-sm p-5 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                    <h1 class="text-3xl font-bold text-indigo-900">โรงเรียนวิเชียรชม</h1>
+                    <p id="curr-date" class="text-gray-500 mt-1"></p>
+                </div>
+                <div class="flex gap-2">
+                    <button id="admin-btn" class="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 px-4 py-2 rounded-lg font-bold transition">🔐 Admin Login</button>
+                    <button id="logout-btn" class="hidden bg-red-100 text-red-700 hover:bg-red-200 px-4 py-2 rounded-lg font-bold transition">ออกจากระบบ</button>
+                </div>
+            </div>
+
+            <div id="unchecked-alert-box" class="hidden bg-red-50 border-l-4 border-red-500 rounded-r-xl shadow-md p-5 mb-6 relative overflow-hidden alert-active">
+                <div class="flex items-start gap-4 z-10 relative">
+                    <div class="bg-red-100 p-2 rounded-full shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div class="w-full">
+                        <h3 class="text-lg font-bold text-red-800">แจ้งเตือน: ห้องเรียนที่ยังไม่ได้เช็คชื่อ (วันนี้)</h3>
+                        <p class="text-sm text-red-600 mt-1 mb-3 font-medium">
+                            เวลาปัจจุบัน: <span id="current-time-display" class="font-bold bg-red-100 px-2 rounded">--:-- น.</span> — กรุณาติดตามห้องเรียนต่อไปนี้:
+                        </p>
+                        <div class="bg-white border border-red-100 rounded-lg p-3 max-h-48 overflow-y-auto custom-scrollbar">
+                            <ul id="unchecked-list" class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-red-700 font-medium"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-lg p-6 mb-6 no-print border border-indigo-50">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="font-bold text-xl text-indigo-900 flex items-center gap-2">
+                        📝 บันทึกการมาเรียน
+                    </h3>
+                    <div id="admin-tools" class="hidden flex gap-2">
+                         <button onclick="autoSetupClassrooms()" class="bg-yellow-100 text-yellow-800 hover:bg-yellow-200 px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2">
+                            ⚡ ติดตั้งข้อมูล (56 ห้อง)
+                        </button>
+                        <button id="btn-mng-cls" class="bg-green-100 text-green-800 hover:bg-green-200 px-3 py-2 rounded-lg text-sm font-bold">
+                            + เพิ่มห้อง
+                        </button>
+                    </div>
+                </div>
+
+                <form id="abs-form" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                    <div class="md:col-span-1">
+                        <label class="text-sm font-bold text-gray-700 block mb-1">วันที่บันทึก</label>
+                        <input type="date" id="r-date" class="w-full border-2 border-gray-200 p-2.5 rounded-lg focus:border-indigo-500 outline-none cursor-pointer">
+                    </div>
+                    <div class="md:col-span-1">
+                        <label class="text-sm font-bold text-gray-700 block mb-1">ห้องเรียน</label>
+                        <select id="r-cls" class="w-full border-2 border-gray-200 p-2.5 rounded-lg focus:border-indigo-500 outline-none bg-white font-medium">
+                            <option value="">-- กำลังโหลด --</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-sm font-bold text-gray-700 block mb-1">ชาย (ขาด)</label>
+                        <input type="number" id="r-m" value="0" min="0" class="w-full border-2 border-gray-200 p-2.5 rounded-lg focus:border-indigo-500 outline-none text-center font-bold text-lg">
+                    </div>
+                    <div>
+                        <label class="text-sm font-bold text-gray-700 block mb-1">หญิง (ขาด)</label>
+                        <input type="number" id="r-f" value="0" min="0" class="w-full border-2 border-gray-200 p-2.5 rounded-lg focus:border-indigo-500 outline-none text-center font-bold text-lg">
+                    </div>
+                    <div class="md:col-span-1">
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-2.5 rounded-lg font-bold shadow-lg shadow-indigo-200 transition">
+                            บันทึกข้อมูล
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div id="stats-panel" class="hidden">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+                    <h3 class="font-bold text-xl text-gray-800">📊 แดชบอร์ด Admin</h3>
+                    <div class="flex gap-2 items-center bg-white p-2 rounded-lg shadow-sm">
+                        <span class="text-sm font-bold text-gray-600 pl-2">เลือกวันที่:</span>
+                        <input type="date" id="v-date" class="border p-1 rounded text-sm">
+                        <button onclick="printReport()" class="bg-gray-800 hover:bg-black text-white px-4 py-1.5 rounded text-sm font-bold flex items-center gap-2">
+                            🖨️ พิมพ์รายงาน
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    <div class="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-5 rounded-2xl shadow-lg">
+                        <div class="text-sm opacity-90">นักเรียนทั้งหมด</div>
+                        <div id="s-total" class="text-3xl font-bold mt-1">0</div>
+                        <div class="text-xs mt-2 bg-blue-700/30 p-1 rounded inline-block" id="s-total-detail">ช: 0 / ญ: 0</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-5 rounded-2xl shadow-lg">
+                        <div class="text-sm opacity-90">มาเรียน</div>
+                        <div id="s-pres" class="text-3xl font-bold mt-1">0</div>
+                        <div class="text-xs mt-2 bg-emerald-700/30 p-1 rounded inline-block" id="s-pres-detail">ช: 0 / ญ: 0</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-rose-500 to-rose-600 text-white p-5 rounded-2xl shadow-lg">
+                        <div class="text-sm opacity-90">ขาดเรียน</div>
+                        <div id="s-abs" class="text-3xl font-bold mt-1">0</div>
+                        <div class="text-xs mt-2 bg-rose-700/30 p-1 rounded inline-block" id="s-abs-detail">ช: 0 / ญ: 0</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-orange-400 to-orange-500 text-white p-5 rounded-2xl shadow-lg">
+                        <div class="text-sm opacity-90">% การขาด</div>
+                        <div id="s-perc" class="text-3xl font-bold mt-1">0%</div>
+                        <div class="text-xs mt-2 text-orange-100">ของทั้งโรงเรียน</div>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-center">
+                            <thead class="bg-gray-50 text-gray-600 uppercase text-xs tracking-wider border-b">
+                                <tr>
+                                    <th class="p-4 text-left font-bold">ห้องเรียน</th>
+                                    <th class="p-4 font-bold">สถานะ</th>
+                                    <th class="p-4 font-bold">นร.ทั้งหมด (ช/ญ)</th>
+                                    <th class="p-4 font-bold text-red-600">ขาด (คน)</th>
+                                    <th class="p-4 font-bold">% ขาด</th>
+                                    <th class="p-4 font-bold">จัดการ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tbl-body" class="divide-y divide-gray-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="print-area">
+        <div class="flex justify-between items-center mb-2 px-2">
+             <h1 class="text-md font-bold">สถิติการมาเรียน โรงเรียนวิเชียรชม</h1>
+             <div class="text-xs font-bold" id="print-date"></div>
+        </div>
+        <div id="print-grid" class="print-grid"></div>
+        <div class="mt-2 flex justify-end">
+            <div style="width: 45%;">
+                <table class="print-table">
+                    <thead>
+                        <tr>
+                            <th rowspan="2">รวมทั้งโรงเรียน</th>
+                            <th colspan="3">นักเรียน</th>
+                            <th colspan="3">มาเรียน</th>
+                            <th colspan="3">ขาด</th>
+                        </tr>
+                        <tr><th>ช</th><th>ญ</th><th>รวม</th><th>ช</th><th>ญ</th><th>รวม</th><th>ช</th><th>ญ</th><th>รวม</th></tr>
+                    </thead>
+                    <tbody id="print-total"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div id="cls-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl">
+            <h3 class="font-bold text-xl mb-4 text-indigo-900">เพิ่มห้องเรียนใหม่</h3>
+            <input id="new-cls-n" placeholder="ชื่อห้อง (เช่น ป.1/1)" class="w-full border-2 p-3 mb-3 rounded-xl outline-none focus:border-indigo-500">
+            <div class="flex gap-3 mb-4">
+                <input id="new-cls-m" type="number" placeholder="ชาย" class="w-full border-2 p-3 rounded-xl outline-none focus:border-indigo-500">
+                <input id="new-cls-f" type="number" placeholder="หญิง" class="w-full border-2 p-3 rounded-xl outline-none focus:border-indigo-500">
+            </div>
+            <button onclick="addClassroom()" class="w-full bg-green-600 hover:bg-green-700 text-white p-3 rounded-xl font-bold transition">บันทึก</button>
+            <button onclick="$('cls-modal').classList.add('hidden')" class="w-full mt-3 text-gray-500 text-sm font-bold">ปิดหน้าต่าง</button>
+        </div>
+    </div>
+
+    <div id="edit-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl border-4 border-yellow-100">
+            <h3 class="font-bold text-xl mb-4 text-yellow-700">✏️ แก้ไขข้อมูลห้องเรียน</h3>
+            <input type="hidden" id="edit-cls-id">
+            <label class="text-xs font-bold text-gray-500">ชื่อห้อง</label>
+            <input id="edit-cls-n" class="w-full border-2 p-2 mb-3 rounded-lg outline-none bg-gray-50 font-bold text-gray-700">
+            <div class="flex gap-3 mb-4">
+                <div class="w-1/2">
+                    <label class="text-xs font-bold text-gray-500">ชาย (คน)</label>
+                    <input id="edit-cls-m" type="number" class="w-full border-2 p-2 rounded-lg outline-none focus:border-yellow-500 font-bold text-center">
+                </div>
+                <div class="w-1/2">
+                    <label class="text-xs font-bold text-gray-500">หญิง (คน)</label>
+                    <input id="edit-cls-f" type="number" class="w-full border-2 p-2 rounded-lg outline-none focus:border-yellow-500 font-bold text-center">
+                </div>
+            </div>
+            <button onclick="saveEditClassroom()" class="w-full bg-yellow-500 hover:bg-yellow-600 text-white p-3 rounded-xl font-bold transition">บันทึกการแก้ไข</button>
+            <button onclick="$('edit-modal').classList.add('hidden')" class="w-full mt-3 text-gray-500 text-sm font-bold">ยกเลิก</button>
+        </div>
+    </div>
+
+    <script>
+        // ============================================
+        // ⚠️ วาง URL ของ Google Apps Script ที่นี่
+        // ============================================
+        const API_URL = "https://script.google.com/macros/s/AKfycbzUC8jlNhkYbAW-7QH-s8RHHZsomOS7EWfQuH1l2guo4WFhANkoYf5UUF_g2Ol7mGjq/exec"; 
+        
+        // Corrected Data (Total 994 M / 989 F = 1983)
+        const classroomsDataFromImage = [
+          {c:"อ.3/1", m:15, f:15}, {c:"อ.3/2", m:14, f:16}, {c:"อ.3/3", m:18, f:12}, {c:"อ.3/4", m:14, f:14}, {c:"อ.3/5", m:15, f:10},
+          {c:"ป.1/1", m:20, f:18}, {c:"ป.1/2", m:20, f:20}, {c:"ป.1/3", m:17, f:21}, {c:"ป.1/4", m:18, f:20}, {c:"ป.1/5", m:19, f:18}, {c:"ป.1/6", m:19, f:17}, {c:"ป.1/7", m:14, f:16}, {c:"ป.1/8", m:14, f:15},
+          {c:"ป.2/1", m:26, f:14}, {c:"ป.2/2", m:23, f:17}, {c:"ป.2/3", m:21, f:19}, {c:"ป.2/4", m:22, f:17}, {c:"ป.2/5", m:23, f:16}, {c:"ป.2/6", m:23, f:16}, {c:"ป.2/7", m:14, f:16}, {c:"ป.2/8", m:16, f:14},
+          {c:"ป.3/1", m:19, f:22}, {c:"ป.3/2", m:23, f:20}, {c:"ป.3/3", m:21, f:18}, {c:"ป.3/4", m:20, f:21}, {c:"ป.3/5", m:23, f:19}, {c:"ป.3/6", m:22, f:19}, {c:"ป.3/7", m:12, f:18}, {c:"ป.3/8", m:11, f:19},
+          {c:"ป.4/1", m:21, f:17}, {c:"ป.4/2", m:19, f:19}, {c:"ป.4/3", m:17, f:21}, {c:"ป.4/4", m:20, f:18}, {c:"ป.4/5", m:20, f:18}, {c:"ป.4/6", m:18, f:20}, {c:"ป.4/7", m:14, f:13}, {c:"ป.4/8", m:13, f:15}, {c:"ป.4/9", m:12, f:24},
+          {c:"ป.5/1", m:22, f:19}, {c:"ป.5/2", m:21, f:20}, {c:"ป.5/3", m:21, f:20}, {c:"ป.5/4", m:21, f:20}, {c:"ป.5/5", m:20, f:20}, {c:"ป.5/6", m:22, f:19}, {c:"ป.5/7", m:7, f:10}, {c:"ป.5/8", m:6, f:12}, {c:"ป.5/9", m:11, f:25},
+          {c:"ป.6/1", m:21, f:18}, {c:"ป.6/2", m:17, f:19}, {c:"ป.6/3", m:18, f:19}, {c:"ป.6/4", m:19, f:16}, {c:"ป.6/5", m:18, f:18}, {c:"ป.6/6", m:19, f:19}, {c:"ป.6/7", m:13, f:12}, {c:"ป.6/8", m:12, f:15}, {c:"ป.6/9", m:14, f:22}
+        ];
+
+        let data = { records: [], classrooms: [], admins: [] };
+        let user = 'teacher';
+        
+        const getLocalTodayDate = () => {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
+        let selDate = getLocalTodayDate();
+
+        const $ = (id) => document.getElementById(id);
+
+        const sortCls = (strA, strB) => {
+            const a = String(strA || "");
+            const b = String(strB || "");
+            const prefixA = a.substring(0, 1);
+            const prefixB = b.substring(0, 1);
+            if (prefixA === 'อ' && prefixB !== 'อ') return -1;
+            if (prefixA !== 'อ' && prefixB === 'อ') return 1;
+            return a.localeCompare(b, 'th', {numeric: true});
+        };
+
+        setInterval(() => {
+            const now = new Date();
+            const timeStr = `${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')} น.`;
+            if($('current-time-display')) $('current-time-display').innerText = timeStr;
+        }, 1000);
+
+        async function loadData() {
+            $('loading-screen').classList.remove('hidden');
+            $('loading-text').innerText = "กำลังดึงข้อมูล...";
+            try {
+                if(API_URL.includes("วาง_URL")) throw new Error("⚠️ กรุณานำ URL จาก Google Script มาวางในโค้ดก่อนครับ");
+                const res = await fetch(API_URL);
+                data = await res.json();
+                render();
+            } catch(e) { alert("เกิดข้อผิดพลาด: " + e.message); }
+            $('loading-screen').classList.add('hidden');
+            $('app').classList.remove('hidden');
+        }
+
+        async function postData(action, type, payload) {
+            $('loading-screen').classList.remove('hidden');
+            $('loading-text').innerText = "กำลังบันทึก...";
+            try {
+                await fetch(API_URL, {
+                    method: 'POST', mode: 'no-cors',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action, type, data: payload, id: payload.id })
+                });
+                await new Promise(r => setTimeout(r, 1500));
+                await loadData();
+                if(action !== 'setupClassrooms') alert("✅ บันทึกเรียบร้อย");
+            } catch(e) { alert("❌ ผิดพลาด: " + e.message); }
+            $('loading-screen').classList.add('hidden');
+        }
+
+        async function autoSetupClassrooms() {
+            if(!confirm(`⚠️ ยืนยันติดตั้งข้อมูล 56 ห้องใหม่? (ข้อมูลเดิมจะถูกล้าง)`)) return;
+            const payload = classroomsDataFromImage.map((room, idx) => ({ id: `C_AUTO_${idx}`, classroom: room.c, m: room.m, f: room.f }));
+            $('loading-screen').classList.remove('hidden');
+            $('loading-text').innerText = "กำลังติดตั้ง...";
+            try {
+                await fetch(API_URL, {
+                    method: 'POST', mode: 'no-cors', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ action: 'setupClassrooms', data: payload })
+                });
+                await new Promise(r => setTimeout(r, 2000));
+                await loadData();
+                alert("✅ เสร็จสิ้น");
+            } catch(e) { alert("❌ ผิดพลาด: " + e.message); }
+            $('loading-screen').classList.add('hidden');
+        }
+
+        function render() {
+            const todayStr = getLocalTodayDate();
+            const inputDate = $('r-date').value || todayStr;
+            const recsOnDate = data.records.filter(r => r.date === inputDate);
+
+            // Alert Logic
+            const checkedSet = new Set(recsOnDate.map(r => r.classroom));
+            const uncheckedClassrooms = data.classrooms.filter(c => !checkedSet.has(c.classroom));
+            const currentHour = new Date().getHours();
+            
+            if(uncheckedClassrooms.length > 0 && (inputDate === todayStr) && (currentHour >= 12)) {
+                $('unchecked-alert-box').classList.remove('hidden');
+                $('unchecked-list').innerHTML = uncheckedClassrooms.sort(sortCls).map(c => 
+                    `<li class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-red-400"></span>${c.classroom} (${parseInt(c.m)+parseInt(c.f)} คน)</li>`
+                ).join('');
+            } else {
+                $('unchecked-alert-box').classList.add('hidden');
+            }
+
+            // Dropdown
+            const clsSel = $('r-cls');
+            const currCls = clsSel.value;
+            if(data.classrooms.length === 0) {
+                 clsSel.innerHTML = '<option value="">(ยังไม่มีข้อมูลห้องเรียน)</option>';
+            } else {
+                const options = data.classrooms.sort(sortCls).map(c => {
+                    const isChecked = checkedSet.has(c.classroom);
+                    return `<option value="${c.classroom}">${isChecked ? '✅' : '🔴'} ${c.classroom}</option>`;
+                }).join('');
+                clsSel.innerHTML = '<option value="">-- เลือกห้องเรียน --</option>' + options;
+                clsSel.value = currCls;
+            }
+
+            // Admin Table
+            if(user === 'admin') {
+                const viewDate = $('v-date').value;
+                const viewRecs = data.records.filter(r => r.date === viewDate);
+                let t = {m:0, f:0, abs:0, pm:0, pf:0, abs_m:0, abs_f:0};
+                
+                const html = data.classrooms.sort(sortCls).map(c => {
+                    const rec = viewRecs.find(r => r.classroom === c.classroom);
+                    const std = parseInt(c.m)+parseInt(c.f);
+                    
+                    t.m += parseInt(c.m); 
+                    t.f += parseInt(c.f);
+                    
+                    const abs = rec ? (parseInt(rec.abs_m)+parseInt(rec.abs_f)) : 0;
+                    if(rec) {
+                        t.abs += abs;
+                        t.abs_m += parseInt(rec.abs_m);
+                        t.abs_f += parseInt(rec.abs_f);
+                    }
+                    const percent = std > 0 && rec ? ((abs/std)*100).toFixed(0) : 0;
+                    const statusBadge = rec 
+                        ? `<span class="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold border border-green-200">✅ เช็คแล้ว</span>` 
+                        : `<span class="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold border border-red-200">⚠️ ยังไม่เช็ค</span>`;
+
+                    return `<tr class="${rec ? 'hover:bg-gray-50' : 'bg-red-50 hover:bg-red-100'} border-b transition">
+                        <td class="p-3 text-left font-semibold text-gray-700">${c.classroom}</td>
+                        <td class="p-3">${statusBadge}</td>
+                        <td class="p-3 text-gray-600 font-bold">${std} <span class="text-xs font-normal text-gray-400 block">(ช ${c.m} / ญ ${c.f})</span></td>
+                        <td class="p-3 font-bold ${rec ? 'text-red-600' : 'text-gray-400'}">${rec ? abs : '-'}</td>
+                        <td class="p-3 font-bold text-gray-600">${rec ? percent+'%' : '-'}</td>
+                        <td class="p-3 flex gap-1 justify-center">
+                            ${rec ? `<button onclick="delRec('${rec.id}')" class="text-red-500 bg-white border border-red-200 px-2 py-1 rounded text-xs">ลบ</button>` : ''}
+                            <button onclick="openEditModal('${c.id}')" class="text-yellow-600 bg-white border border-yellow-200 px-2 py-1 rounded text-xs">✏️ แก้ไข</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+                
+                $('tbl-body').innerHTML = html;
+                const totalStd = t.m + t.f;
+                const totalPres = totalStd - t.abs;
+                const presM = t.m - t.abs_m;
+                const presF = t.f - t.abs_f;
+
+                $('s-total').innerText = totalStd;
+                $('s-total-detail').innerText = `ช: ${t.m} / ญ: ${t.f}`;
+                $('s-pres').innerText = totalPres;
+                $('s-pres-detail').innerText = `ช: ${presM} / ญ: ${presF}`;
+                $('s-abs').innerText = t.abs;
+                $('s-abs-detail').innerText = `ช: ${t.abs_m} / ญ: ${t.abs_f}`;
+                $('s-perc').innerText = totalStd > 0 ? ((t.abs/totalStd)*100).toFixed(1)+'%' : '0%';
+            }
+
+            const d = new Date(selDate);
+            $('curr-date').innerText = `ข้อมูลประจำวันที่: ${d.getDate()}/${d.getMonth()+1}/${d.getFullYear()+543}`;
+        }
+
+        // --- EDIT FUNCTIONS ---
+        function openEditModal(id) {
+            const cls = data.classrooms.find(c => c.id === id);
+            if(!cls) return;
+            $('edit-cls-id').value = cls.id;
+            $('edit-cls-n').value = cls.classroom;
+            $('edit-cls-m').value = cls.m;
+            $('edit-cls-f').value = cls.f;
+            $('edit-modal').classList.remove('hidden');
+        }
+
+        function saveEditClassroom() {
+            const id = $('edit-cls-id').value;
+            const name = $('edit-cls-n').value;
+            const m = $('edit-cls-m').value;
+            const f = $('edit-cls-f').value;
+            
+            if(!name || !m || !f) return alert("กรุณากรอกข้อมูลให้ครบ");
+            
+            postData('update', 'classroom', { id: id, classroom: name, m: m, f: f });
+            $('edit-modal').classList.add('hidden');
+        }
+
+        // Handlers
+        $('r-date').onchange = (e) => { render(); };
+        $('abs-form').onsubmit = (e) => {
+            e.preventDefault();
+            const cls = $('r-cls').value;
+            if(!cls) return alert('เลือกห้องก่อน');
+            const rec = data.records.find(r => r.date === $('r-date').value && r.classroom === cls);
+            if(rec) return alert('ห้องนี้เช็คไปแล้ว');
+            postData('create', 'record', { id: 'R'+Date.now(), date: $('r-date').value, classroom: cls, abs_m: $('r-m').value, abs_f: $('r-f').value });
+            $('r-m').value=0; $('r-f').value=0;
+        };
+        function addClassroom() { postData('create', 'classroom', { id:'C'+Date.now(), classroom:$('new-cls-n').value, m:$('new-cls-m').value, f:$('new-cls-f').value }); $('cls-modal').classList.add('hidden'); }
+        function delRec(id) { if(confirm('ลบ?')) postData('delete', 'record', {id: id}); }
+        $('login-form').onsubmit = (e) => { e.preventDefault(); if($('password').value==='admin123' || data.admins.some(a=>a.password===$('password').value)) { user='admin'; $('login-screen').classList.add('hidden'); updRole(); } else alert('รหัสผิด'); };
+        function updRole() {
+            const isAdmin = user==='admin'; $('stats-panel').classList.toggle('hidden', !isAdmin); $('admin-tools').classList.toggle('hidden', !isAdmin); $('admin-btn').classList.toggle('hidden', isAdmin); $('logout-btn').classList.toggle('hidden', !isAdmin); $('v-date').value = $('r-date').value; render();
+        }
+        $('admin-btn').onclick = () => $('login-screen').classList.remove('hidden');
+        $('cancel-login').onclick = () => $('login-screen').classList.add('hidden');
+        $('logout-btn').onclick = () => { user='teacher'; updRole(); };
+        $('v-date').onchange = () => render();
+        $('r-date').value = selDate; $('v-date').value = selDate;
+        $('btn-mng-cls').onclick = () => $('cls-modal').classList.remove('hidden');
+
+        // PRINT LOGIC (FIXED COLUMN SHIFT)
+        window.printReport = () => {
+            const viewDate = $('v-date').value;
+            const grid = $('print-grid'); grid.innerHTML = '';
+            const recs = data.records.filter(r => r.date === viewDate);
+            const groups = {};
+            data.classrooms.forEach(c => { const g = (c.classroom.match(/^([^\d]+\d+)/) || [null,'อื่นๆ'])[1]; if(!groups[g]) groups[g]=[]; groups[g].push(c); });
+            let GT = {m:0, f:0, s:0, pm:0, pf:0, ps:0, am:0, af:0, as:0};
+
+            Object.keys(groups).sort(sortCls).forEach(gName => {
+                let rows = '', ST = {m:0,f:0,s:0, am:0,af:0,as:0, pm:0,pf:0,ps:0};
+                groups[gName].sort((a,b)=>sortCls(a.classroom,b.classroom)).forEach(c => {
+                    const r = recs.find(x => x.classroom === c.classroom);
+                    const sm=parseInt(c.m), sf=parseInt(c.f), ss=sm+sf;
+                    const am=r?parseInt(r.abs_m):0, af=r?parseInt(r.abs_f):0, as=am+af;
+                    const pm=sm-am, pf=sf-af, ps=ss-as;
+                    ST.m+=sm; ST.f+=sf; ST.s+=ss; ST.am+=am; ST.af+=af; ST.as+=as; ST.pm+=pm; ST.pf+=pf; ST.ps+=ps;
+                    rows += `<tr><td>${c.classroom}</td><td>${sm}</td><td>${sf}</td><td class="bg-gray-100">${ss}</td><td>${pm}</td><td>${pf}</td><td class="bg-blue-50">${ps}</td><td>${am}</td><td>${af}</td><td class="bg-red-50 font-bold">${as}</td></tr>`;
+                });
+                GT.m+=ST.m; GT.f+=ST.f; GT.s+=ST.s; GT.pm+=ST.pm; GT.pf+=ST.pf; GT.ps+=ST.ps; GT.am+=ST.am; GT.af+=ST.af; GT.as+=ST.as;
+                grid.innerHTML += `<div class="grade-box"><table class="print-table"><thead><tr class="header-present"><th rowspan="2">ชั้น ${gName}</th><th colspan="3">นักเรียน</th><th colspan="3">มาเรียน</th><th colspan="3" class="header-absent">ขาด</th></tr><tr><th>ช</th><th>ญ</th><th>รวม</th><th>ช</th><th>ญ</th><th>รวม</th><th>ช</th><th>ญ</th><th>รวม</th></tr></thead><tbody>${rows}<tr class="font-bold bg-gray-100"><td>รวม</td><td>${ST.m}</td><td>${ST.f}</td><td>${ST.s}</td><td>${ST.pm}</td><td>${ST.pf}</td><td>${ST.ps}</td><td>${ST.am}</td><td>${ST.af}</td><td>${ST.as}</td></tr></tbody></table></div>`;
+            });
+            // ✅ FIX: Added GT.s (Total) as the first cell to match the "Total School" header column
+            $('print-total').innerHTML = `<tr class="text-center font-bold"><td>${GT.s}</td><td>${GT.m}</td><td>${GT.f}</td><td>${GT.s}</td><td>${GT.pm}</td><td>${GT.pf}</td><td>${GT.ps}</td><td>${GT.am}</td><td>${GT.af}</td><td>${GT.as}</td></tr>`;
+            
+            const d = new Date(viewDate);
+            const y = d.getFullYear() + 543;
+            const m = d.getMonth();
+            const day = d.getDate();
+            const thaiMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+            $('print-date').innerText = `ข้อมูลวันที่ ${day} ${thaiMonths[m]} ${y}`;
+            
+            window.print();
+        };
+
+        loadData();
+    </script>
+</body>
+</html>
